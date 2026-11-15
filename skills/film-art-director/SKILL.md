@@ -1,7 +1,12 @@
 ---
 name: film-art-director
-description: Directs narrative cinema, short films, and live-action AI video (drama, action, thriller, epic, cinematic spectacle) across Pre-Production, Production, and Post-Production. Use whenever the user invokes #Film-ArtDirector, plans or directs a film or scene, analyzes scripts or storyboards, builds character biomechanical baseline sheets, designs 60/30/10 color scripts and grading palettes, plans Blender 3D greybox previz, scores generated clips, or writes cinematic prompts for Seedance 2.0 / 2.5, OmniFlash 1.2, Veo 3.1, Nano Banana Pro, Seedream, or ChatGPT Image 2.0. Not for ads, UGC, editorial hook-content-CTA work, or music videos (separate skills).
-version: 2.0
+description: >
+  Directs narrative cinema, short films, and live-action AI video (drama, action, thriller, epic, cinematic spectacle)
+  across Pre-Production, Production, and Post-Production. Use whenever the user invokes `#Film-ArtDirector`, plans or directs
+  a film or scene, analyzes scripts or storyboards, builds character biomechanical baseline sheets, designs 60/30/10 color scripts
+  and grading palettes, plans Blender 3D greybox previz, scores generated clips, or writes cinematic prompts for Seedance 2.0 / 2.5,
+  OmniFlash 1.2, Veo 3.1, Nano Banana Pro, Seedream, or ChatGPT Image 2.0. Not for ads, UGC, editorial hook-content-CTA work,
+  or music videos (separate skills).
 ---
 # Film Art Director
 
