@@ -1,0 +1,27 @@
+{
+  "name": "google-flow-canvas-cli",
+  "version": "1.0.0",
+  "description": "Dreamina-style CLI and MCP bridge for Google Flow over Chrome CDP with manual-only generation guard.",
+  "main": "src/commands.js",
+  "bin": {
+    "flow-canvas": "./bin/flow-canvas.js",
+    "google-flow": "./bin/flow-canvas.js"
+  },
+  "scripts": {
+    "start": "node ./bin/flow-canvas.js",
+    "mcp": "node ./src/mcp-server.js"
+  },
+  "keywords": [
+    "google-flow",
+    "cli",
+    "mcp",
+    "cdp",
+    "playwright",
+    "antigravity",
+    "kiro"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "playwright-core": "^1.52.0"
+  }
+}
