@@ -29,7 +29,7 @@
 Prerequisites: **Node.js** (18+) and **Google Chrome** (or Chromium).
 
 ```powershell
-git clone <your-repo-url> "Google-Flow-Connects"
+git clone https://github.com/solgates/google-flow-connects.git "Google-Flow-Connects"
 cd "Google-Flow-Connects"
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
