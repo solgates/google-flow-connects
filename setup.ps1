@@ -123,7 +123,7 @@ function Update-ClaudeDesktopConfig {
   }
   $configObj.mcpServers | Add-Member -NotePropertyName 'google-flow' -NotePropertyValue $entry -Force
 
-  $jsonText = ($configObj | ConvertTo-Json -Depth 10) + "`n"
+  $jsonText = ($configObj | ConvertTo-Json -Depth 32) + "`n"
   [System.IO.File]::WriteAllText($ConfigPath, $jsonText, $Encoding)
   Write-Host "  Registered google-flow MCP -> $ConfigPath"
 }
@@ -135,6 +135,10 @@ if ($selectedAgents -contains 'claude') {
   $msixPackages = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Packages') -Filter 'Claude_*' -Directory -ErrorAction SilentlyContinue
   foreach ($pkg in $msixPackages) {
     $claudeTargets += Join-Path $pkg.FullName 'LocalCache\Roaming\Claude\claude_desktop_config.json'
+  }
+  $claudeDataDirs = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Claude-Data') -Filter 'claude_*' -Directory -ErrorAction SilentlyContinue
+  foreach ($dataDir in $claudeDataDirs) {
+    $claudeTargets += Join-Path $dataDir.FullName 'claude_desktop_config.json'
   }
   foreach ($cfgPath in ($claudeTargets | Select-Object -Unique)) {
     Update-ClaudeDesktopConfig -ConfigPath $cfgPath -NodeExe $nodeExe -CliScript $cliJs -Encoding $utf8NoBom
