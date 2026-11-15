@@ -286,125 +286,6 @@ function Install-ClaudeCoworkPlugin {
   }
 }
 
-function Get-SkillMetadata {
-  param(
-    [string]$SkillMdPath,
-    [string]$FallbackName
-  )
-
-  $raw = [System.IO.File]::ReadAllText($SkillMdPath)
-  $name = $FallbackName
-  $desc = $FallbackName
-  if ($raw -match '(?s)^---\r?\n(.*?)\r?\n---') {
-    $fmLines = $matches[1] -split '\r?\n'
-    if (($fmLines -join "`n") -match '(?m)^name:\s*(.+)$') {
-      $name = ($matches[1].Trim() -replace '^["'']|["'']$', '')
-    }
-    $captureDesc = $false
-    $descParts = @()
-    foreach ($line in $fmLines) {
-      if (-not $captureDesc) {
-        if ($line -match '^description:\s*(.*)$') {
-          $val = $matches[1].Trim()
-          if ($val -eq '>' -or $val -eq '|' -or $val -eq '>-' -or $val -eq '|-') {
-            $captureDesc = $true
-          } else {
-            $desc = (($val -replace '^["'']|["'']$', '') -replace '\\"', '"')
-            break
-          }
-        }
-      } else {
-        if ($line -match '^\s+(.+)$') {
-          $descParts += $matches[1].Trim()
-        } elseif ($line -match '^[a-zA-Z0-9_-]+:') {
-          break
-        }
-      }
-    }
-    if ($captureDesc -and $descParts.Count -gt 0) {
-      $desc = ($descParts -join ' ').Trim()
-    }
-  }
-  return [pscustomobject]@{
-    name        = $name
-    description = $desc
-  }
-}
-
-function Install-ClaudeSkillsPlugin {
-  param(
-    [string]$ProfileDir,
-    [string]$RepoRoot,
-    [System.Text.Encoding]$Encoding
-  )
-
-  $skillsPluginRoot = Join-Path $ProfileDir 'local-agent-mode-sessions\skills-plugin'
-  if (-not (Test-Path $skillsPluginRoot)) {
-    return
-  }
-
-  $manifestFiles = @(Get-ChildItem -Path $skillsPluginRoot -Filter 'manifest.json' -Recurse -File -ErrorAction SilentlyContinue)
-  $repoSkillsDir = Join-Path $RepoRoot 'skills'
-  if ($manifestFiles.Count -eq 0 -or -not (Test-Path $repoSkillsDir)) {
-    return
-  }
-
-  $skillDirs = @(Get-ChildItem -Path $repoSkillsDir -Directory)
-  foreach ($mf in $manifestFiles) {
-    $targetBaseDir = $mf.Directory.FullName
-    $targetSkillsDir = Join-Path $targetBaseDir 'skills'
-    New-Item -ItemType Directory -Path $targetSkillsDir -Force | Out-Null
-
-    $manifestObj = Read-JsonObject -Path $mf.FullName
-    $existingSkills = @()
-    $skillsProp = $manifestObj.PSObject.Properties['skills']
-    if ($null -ne $skillsProp -and $null -ne $skillsProp.Value) {
-      $existingSkills = @($skillsProp.Value)
-    }
-
-    foreach ($sd in $skillDirs) {
-      $skillMd = Join-Path $sd.FullName 'SKILL.md'
-      if (-not (Test-Path $skillMd)) {
-        continue
-      }
-
-      $destSkillDir = Join-Path $targetSkillsDir $sd.Name
-      if (Test-Path $destSkillDir) {
-        Remove-Item -Path $destSkillDir -Recurse -Force
-      }
-      Copy-Item -Path $sd.FullName -Destination $destSkillDir -Recurse -Force
-
-      $meta = Get-SkillMetadata -SkillMdPath $skillMd -FallbackName $sd.Name
-      $matchIdx = -1
-      for ($i = 0; $i -lt $existingSkills.Count; $i++) {
-        if ($existingSkills[$i].skillId -eq $meta.name -or $existingSkills[$i].name -eq $meta.name) {
-          $matchIdx = $i
-          break
-        }
-      }
-
-      $entry = [pscustomobject]@{
-        skillId     = $meta.name
-        name        = $meta.name
-        description = $meta.description
-        creatorType = 'user'
-        updatedAt   = $null
-        enabled     = $true
-      }
-      if ($matchIdx -ge 0) {
-        $existingSkills[$matchIdx] = $entry
-      } else {
-        $existingSkills += $entry
-      }
-    }
-
-    $manifestObj | Add-Member -NotePropertyName 'lastUpdated' -NotePropertyValue ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()) -Force
-    $manifestObj | Add-Member -NotePropertyName 'skills' -NotePropertyValue $existingSkills -Force
-    Write-JsonObject -Path $mf.FullName -Object $manifestObj -Encoding $Encoding
-    Write-Host ("  Installed {0} skills -> {1}" -f $skillDirs.Count, $targetSkillsDir)
-  }
-}
-
 function Build-ClaudePluginPackage {
   param([string]$RepoRoot)
 
@@ -495,7 +376,6 @@ if ($selectedAgents -contains 'claude') {
     $claudeTargets += Join-Path $dataDir.FullName 'claude_desktop_config.json'
     Install-ClaudeDesktopExtension -ProfileDir $dataDir.FullName -CliScript $cliJs -Encoding $utf8NoBom
     Install-ClaudeCoworkPlugin -ProfileDir $dataDir.FullName -RepoRoot $repoRoot -Encoding $utf8NoBom
-    Install-ClaudeSkillsPlugin -ProfileDir $dataDir.FullName -RepoRoot $repoRoot -Encoding $utf8NoBom
   }
   foreach ($cfgPath in ($claudeTargets | Select-Object -Unique)) {
     if ($claudeDataDirs.Count -gt 0) {
