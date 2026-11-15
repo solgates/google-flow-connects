@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "google-flow-connects",
+  "displayName": "Google Flow Connects",
+  "version": "1.0.0",
+  "description": "Google Flow (labs.google/fx/tools/flow) CDP CLI, MCP Server, single-tab prompt queue, and 25 Art Director & creative production skills.",
+  "author": {
+    "name": "Solgates",
+    "url": "https://github.com/solgates"
+  },
+  "homepage": "https://github.com/solgates/google-flow-connects",
+  "repository": "https://github.com/solgates/google-flow-connects",
+  "license": "MIT",
+  "keywords": [
+    "google-flow",
+    "art-director",
+    "video-production",
+    "image-generation",
+    "mcp",
+    "cdp"
+  ]
+}

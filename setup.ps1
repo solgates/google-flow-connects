@@ -90,6 +90,40 @@ foreach ($rawAgent in $parsedAgents) {
   Write-Host ("  Synced {0} skills -> {1}" -f $skillDirs.Count, $targetRoot)
 }
 
+function Read-JsonObject {
+  param([string]$Path)
+
+  if (Test-Path $Path) {
+    $raw = Get-Content -Path $Path -Raw -ErrorAction SilentlyContinue
+    if (-not [string]::IsNullOrWhiteSpace($raw)) {
+      return ($raw | ConvertFrom-Json)
+    }
+  }
+  return [pscustomobject]@{}
+}
+
+function Write-JsonObject {
+  param(
+    [string]$Path,
+    [object]$Object,
+    [System.Text.Encoding]$Encoding
+  )
+
+  $parentDir = Split-Path -Path $Path -Parent
+  New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+  $jsonText = ($Object | ConvertTo-Json -Depth 32) + "`n"
+  [System.IO.File]::WriteAllText($Path, $jsonText, $Encoding)
+}
+
+function Stop-ClaudeDesktopProcesses {
+  $running = Get-Process -Name 'Claude*' -ErrorAction SilentlyContinue
+  if ($running) {
+    Write-Host '  Stopping running Claude Desktop processes so config changes are not overwritten on exit...'
+    $running | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+  }
+}
+
 function Update-ClaudeDesktopConfig {
   param(
     [string]$ConfigPath,
@@ -98,20 +132,7 @@ function Update-ClaudeDesktopConfig {
     [System.Text.Encoding]$Encoding
   )
 
-  $parentDir = Split-Path -Path $ConfigPath -Parent
-  New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
-
-  $configObj = $null
-  if (Test-Path $ConfigPath) {
-    $raw = Get-Content -Path $ConfigPath -Raw -ErrorAction SilentlyContinue
-    if (-not [string]::IsNullOrWhiteSpace($raw)) {
-      $configObj = $raw | ConvertFrom-Json
-    }
-  }
-  if ($null -eq $configObj) {
-    $configObj = [pscustomobject]@{}
-  }
-
+  $configObj = Read-JsonObject -Path $ConfigPath
   $existingServers = $configObj.PSObject.Properties['mcpServers']
   if ($null -eq $existingServers -or $null -eq $existingServers.Value) {
     $configObj | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([pscustomobject]@{}) -Force
@@ -122,14 +143,182 @@ function Update-ClaudeDesktopConfig {
     args    = @($CliScript, 'mcp')
   }
   $configObj.mcpServers | Add-Member -NotePropertyName 'google-flow' -NotePropertyValue $entry -Force
-
-  $jsonText = ($configObj | ConvertTo-Json -Depth 32) + "`n"
-  [System.IO.File]::WriteAllText($ConfigPath, $jsonText, $Encoding)
+  Write-JsonObject -Path $ConfigPath -Object $configObj -Encoding $Encoding
   Write-Host "  Registered google-flow MCP -> $ConfigPath"
 }
 
+function Install-ClaudeDesktopExtension {
+  param(
+    [string]$ProfileDir,
+    [string]$CliScript,
+    [System.Text.Encoding]$Encoding
+  )
+
+  $extId = 'local.solgates.google-flow'
+  $extDir = Join-Path $ProfileDir "Claude Extensions\$extId"
+  $settingsPath = Join-Path $ProfileDir "Claude Extensions Settings\$extId.json"
+
+  $manifestObj = [ordered]@{
+    manifest_version = '0.4'
+    name             = 'Google Flow'
+    display_name     = 'Google Flow'
+    version          = '1.0.0'
+    description      = 'Google Flow (labs.google/fx/tools/flow) CDP MCP Server & Single-Tab Prompt Queue Bridge'
+    long_description = 'Connects Claude Desktop to Google Flow over Chrome CDP (port 9222) for image, video, character, voice, and Art Director single-tab prompt queue workflows.'
+    author           = [ordered]@{
+      name = 'Solgates'
+      url  = 'https://github.com/solgates/google-flow-connects'
+    }
+    homepage         = 'https://github.com/solgates/google-flow-connects'
+    support          = 'https://github.com/solgates/google-flow-connects/issues'
+    server           = [ordered]@{
+      type        = 'node'
+      entry_point = 'bin/flow-canvas.js'
+      mcp_config  = [ordered]@{
+        command = 'node'
+        args    = @($CliScript, 'mcp')
+      }
+    }
+    license          = 'MIT'
+    compatibility    = [ordered]@{
+      runtimes = [ordered]@{
+        node = '>= 18.0.0'
+      }
+    }
+    repository       = [ordered]@{
+      type = 'git'
+      url  = 'https://github.com/solgates/google-flow-connects'
+    }
+  }
+
+  Write-JsonObject -Path (Join-Path $extDir 'manifest.json') -Object $manifestObj -Encoding $Encoding
+  Write-JsonObject -Path $settingsPath -Object ([ordered]@{ isEnabled = $true }) -Encoding $Encoding
+  Write-Host "  Installed Desktop Extension Connector -> $extDir"
+}
+
+function Install-ClaudeCoworkPlugin {
+  param(
+    [string]$ProfileDir,
+    [string]$RepoRoot,
+    [System.Text.Encoding]$Encoding
+  )
+
+  $sessionsRoot = Join-Path $ProfileDir 'local-agent-mode-sessions'
+  if (-not (Test-Path $sessionsRoot)) {
+    return
+  }
+
+  $sessionDirs = @()
+  $accountDirs = Get-ChildItem -Path $sessionsRoot -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne 'skills-plugin' }
+  foreach ($accDir in $accountDirs) {
+    $orgDirs = Get-ChildItem -Path $accDir.FullName -Directory -ErrorAction SilentlyContinue
+    foreach ($orgDir in $orgDirs) {
+      $sessionDirs += $orgDir.FullName
+    }
+  }
+
+  $pluginKey = 'google-flow-connects@local-desktop-app-uploads'
+  $nowIso = [DateTime]::UtcNow.ToString('o')
+  $itemsToCopy = @('.claude-plugin', '.mcp.json', 'skills', 'bin', 'src', 'package.json', 'README.md')
+
+  foreach ($sessDir in $sessionDirs) {
+    $pluginRoot = Join-Path $sessDir 'cowork_plugins\uploads\local-desktop-app-uploads\google-flow-connects'
+    if (Test-Path $pluginRoot) {
+      Remove-Item -Path $pluginRoot -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $pluginRoot -Force | Out-Null
+
+    foreach ($item in $itemsToCopy) {
+      $srcPath = Join-Path $RepoRoot $item
+      if (Test-Path $srcPath) {
+        Copy-Item -Path $srcPath -Destination (Join-Path $pluginRoot $item) -Recurse -Force
+      }
+    }
+
+    $installedPath = Join-Path $sessDir 'cowork_plugins\installed_plugins.json'
+    $installedObj = Read-JsonObject -Path $installedPath
+    $installedObj | Add-Member -NotePropertyName 'version' -NotePropertyValue 2 -Force
+    $pluginsProp = $installedObj.PSObject.Properties['plugins']
+    if ($null -eq $pluginsProp -or $null -eq $pluginsProp.Value) {
+      $installedObj | Add-Member -NotePropertyName 'plugins' -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+
+    $pluginEntries = @(
+      [pscustomobject]@{
+        scope       = 'user'
+        installPath = $pluginRoot
+        version     = '1.0.0'
+        installedAt = $nowIso
+        lastUpdated = $nowIso
+      }
+    )
+    $installedObj.plugins | Add-Member -NotePropertyName $pluginKey -NotePropertyValue $pluginEntries -Force
+    Write-JsonObject -Path $installedPath -Object $installedObj -Encoding $Encoding
+
+    $coworkSettingsPath = Join-Path $sessDir 'cowork_settings.json'
+    $coworkSettingsObj = Read-JsonObject -Path $coworkSettingsPath
+    $enabledProp = $coworkSettingsObj.PSObject.Properties['enabledPlugins']
+    if ($null -eq $enabledProp -or $null -eq $enabledProp.Value) {
+      $coworkSettingsObj | Add-Member -NotePropertyName 'enabledPlugins' -NotePropertyValue ([pscustomobject]@{}) -Force
+    }
+    $coworkSettingsObj.enabledPlugins | Add-Member -NotePropertyName $pluginKey -NotePropertyValue $true -Force
+    Write-JsonObject -Path $coworkSettingsPath -Object $coworkSettingsObj -Encoding $Encoding
+
+    Write-Host "  Installed Cowork Plugin -> $pluginRoot"
+  }
+}
+
+function Build-ClaudePluginPackage {
+  param([string]$RepoRoot)
+
+  Add-Type -AssemblyName System.IO.Compression
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+  $distDir = Join-Path $RepoRoot 'dist'
+  New-Item -ItemType Directory -Path $distDir -Force | Out-Null
+  $pluginFile = Join-Path $distDir 'google-flow-connects.plugin'
+  if (Test-Path $pluginFile) {
+    Remove-Item -Path $pluginFile -Force
+  }
+
+  $fileList = @()
+  foreach ($rel in @('.claude-plugin\plugin.json', '.claude-plugin\marketplace.json', '.mcp.json', 'README.md')) {
+    $full = Join-Path $RepoRoot $rel
+    if (Test-Path $full) {
+      $fileList += [pscustomobject]@{ FullPath = $full; EntryName = ($rel -replace '\\', '/') }
+    }
+  }
+  $skillsDir = Join-Path $RepoRoot 'skills'
+  if (Test-Path $skillsDir) {
+    $rootPrefixLen = $RepoRoot.TrimEnd('\').Length + 1
+    Get-ChildItem -Path $skillsDir -File -Recurse | ForEach-Object {
+      $relPath = $_.FullName.Substring($rootPrefixLen) -replace '\\', '/'
+      $fileList += [pscustomobject]@{ FullPath = $_.FullName; EntryName = $relPath }
+    }
+  }
+
+  $archive = [System.IO.Compression.ZipFile]::Open($pluginFile, [System.IO.Compression.ZipArchiveMode]::Create)
+  try {
+    foreach ($f in $fileList) {
+      [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+        $archive,
+        $f.FullPath,
+        $f.EntryName,
+        [System.IO.Compression.CompressionLevel]::Optimal
+      ) | Out-Null
+    }
+  } finally {
+    $archive.Dispose()
+  }
+
+  Write-Host ("  Built plugin bundle ({0} files) -> {1}" -f $fileList.Count, $pluginFile)
+}
+
 if ($selectedAgents -contains 'claude') {
-  Write-Host '[4/5] Registering google-flow MCP in Claude Desktop configs...'
+  Write-Host '[4/5] Registering Google Flow in Claude Desktop (Connectors, Plugins & Config)...'
+  Build-ClaudePluginPackage -RepoRoot $repoRoot
+  Stop-ClaudeDesktopProcesses
+
   $nodeExe = (Get-Command node).Source
   $claudeTargets = @((Join-Path $env:APPDATA 'Claude\claude_desktop_config.json'))
   $msixPackages = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Packages') -Filter 'Claude_*' -Directory -ErrorAction SilentlyContinue
@@ -139,6 +328,8 @@ if ($selectedAgents -contains 'claude') {
   $claudeDataDirs = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Claude-Data') -Filter 'claude_*' -Directory -ErrorAction SilentlyContinue
   foreach ($dataDir in $claudeDataDirs) {
     $claudeTargets += Join-Path $dataDir.FullName 'claude_desktop_config.json'
+    Install-ClaudeDesktopExtension -ProfileDir $dataDir.FullName -CliScript $cliJs -Encoding $utf8NoBom
+    Install-ClaudeCoworkPlugin -ProfileDir $dataDir.FullName -RepoRoot $repoRoot -Encoding $utf8NoBom
   }
   foreach ($cfgPath in ($claudeTargets | Select-Object -Unique)) {
     Update-ClaudeDesktopConfig -ConfigPath $cfgPath -NodeExe $nodeExe -CliScript $cliJs -Encoding $utf8NoBom

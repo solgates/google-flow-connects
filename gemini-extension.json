@@ -1,0 +1,14 @@
+{
+  "name": "Google Flow Connects",
+  "version": "1.0.0",
+  "description": "Google Flow CDP MCP Server and 25 Art Director & Creative Skills",
+  "mcpServers": {
+    "google-flow": {
+      "command": "node",
+      "args": [
+        "bin/flow-canvas.js",
+        "mcp"
+      ]
+    }
+  }
+}

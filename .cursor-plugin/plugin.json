@@ -1,0 +1,20 @@
+{
+  "name": "google-flow-connects",
+  "displayName": "Google Flow Connects",
+  "version": "1.0.0",
+  "description": "Google Flow CDP MCP Server and 25 Art Director & Creative Skills",
+  "author": {
+    "name": "Solgates"
+  },
+  "homepage": "https://github.com/solgates/google-flow-connects",
+  "repository": "https://github.com/solgates/google-flow-connects",
+  "keywords": [
+    "google-flow",
+    "art-director",
+    "mcp",
+    "video",
+    "design"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

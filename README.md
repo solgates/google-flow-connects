@@ -72,14 +72,26 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -SkipNpm
 
 ---
 
-## Claude Desktop Integration & Optional MCP Registration
+## Claude Desktop Integration (Connectors, Plugins & Skills)
 
-`setup.ps1` automatically registers `google-flow` in **Claude Desktop** (`claude_desktop_config.json` across `%LOCALAPPDATA%\Claude-Data\claude_*`, standard `%APPDATA%\Claude`, and `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`) using `node.exe` and the full path to `bin/flow-canvas.js`.
+You can connect **Google Flow** and all **25 bundled skills** to Claude Desktop in three ways:
 
-1. **Restart Claude Desktop** (`Quit` from the Windows system tray icon, then reopen Claude Desktop) so the `google-flow` MCP tools (`flow_project_*`, `flow_asset_*`, `flow_voice_*`, `flow_prompt_stage`, `flow_queue_*`) appear under **Settings -> Developer -> Local MCP Servers**.
-2. **Using the bundled skills in Claude**:
-   - **Claude Code / Cowork**: Automatically reads your synced skills from `%USERPROFILE%\.claude\skills\`.
-   - **Claude Desktop Chat**: Attach or upload the relevant `SKILL.md` (for example `skills/main-art-director/SKILL.md` or `skills/google-flow-cli/SKILL.md`) into a Claude Desktop Project's Knowledge files, or invoke the `google-flow` MCP tools directly from chat.
+1. **Automatic Local Setup (Recommended)**:
+   Run `powershell -ExecutionPolicy Bypass -File .\setup.ps1`. This automatically:
+   - Closes running Claude Desktop windows before updating config files so Claude does not overwrite them on exit
+   - Installs the **Google Flow** Desktop Extension Connector (`Claude Extensions\local.solgates.google-flow`) so **Google Flow** appears in **Customize -> Connectors -> Yours**
+   - Registers `google-flow` in `claude_desktop_config.json` (`%LOCALAPPDATA%\Claude-Data\claude_*`, `%APPDATA%\Claude`, and `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`)
+   - Installs `google-flow-connects@local-desktop-app-uploads` as a local Cowork Plugin with all 25 skills enabled
+   - Generates `dist/google-flow-connects.plugin`
+
+2. **Install via GitHub URL in Claude Desktop**:
+   Open **Settings -> Customize -> Plugins -> + Add** in Claude Desktop and add this GitHub repository:
+   - `https://github.com/solgates/google-flow-connects` (or `solgates/google-flow-connects`)
+
+3. **Upload the Packaged `.plugin` Bundle**:
+   In Claude Desktop **Settings -> Customize -> Plugins -> + Add**, choose upload/local package and select `dist/google-flow-connects.plugin`.
+
+> **Other Agents**: `%USERPROFILE%\.claude\skills\` is synced for Claude Code/CLI, `%USERPROFILE%\.kiro\skills\` for Kiro, and `%USERPROFILE%\.gemini\config\skills\` for Antigravity.
 
 For **Antigravity** or **Kiro** (`.kiro/settings/mcp.json`, or `~/.claude.json` for Claude Code), you can also register:
 
