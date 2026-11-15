@@ -26,6 +26,8 @@ const {
   listProjectsFromUi,
   createNewProjectInUi,
   closeAssetDrawerIfOpen,
+  snapshotDrawerUiState,
+  restoreDrawerUiState,
   openAssetTab,
   searchAssetsInDrawer,
   readVisibleAssets,
@@ -307,6 +309,14 @@ async function cmdProjectList() {
     for (const p of uiProjects) {
       upsertProjectRecord(p);
     }
+    if (auth.inProject && auth.projectId) {
+      const matchedUi = uiProjects.find((p) => p.projectId === auth.projectId);
+      setCurrentProject({
+        projectId: auth.projectId,
+        title: (matchedUi && matchedUi.title) || auth.headingText || auth.title || auth.projectId,
+        webUrl: auth.url,
+      });
+    }
 
     const refreshed = loadState();
     const mergedMap = new Map();
@@ -391,7 +401,7 @@ async function cmdProjectUse(target) {
     const projectId = extractProjectIdFromUrl(status.url) || (known && known.projectId) || raw;
     const nextState = setCurrentProject({
       projectId,
-      title: (known && known.title) || status.headingText || status.title || projectId,
+      title: status.headingText || (known && known.title) || status.title || projectId,
       webUrl: status.url,
     });
 
@@ -402,6 +412,22 @@ async function cmdProjectUse(target) {
       hasPromptComposer: status.hasPromptComposer,
     };
   });
+}
+
+function getFallbackChipLabelsForProject(projectId, stagedItem = null) {
+  if (stagedItem) {
+    const fromUploads = (stagedItem.uploads || []).map((f) => path.basename(f));
+    const fromAssets = Array.isArray(stagedItem.assets) ? stagedItem.assets : [];
+    const fromVoice = stagedItem.voice ? [stagedItem.voice] : [];
+    return [...fromUploads, ...fromAssets, ...fromVoice].filter(Boolean);
+  }
+  const drafts = loadState().stagedDrafts || [];
+  const latest = drafts.find((d) => !projectId || d.projectId === projectId) || drafts[0];
+  if (!latest) return [];
+  const fromUploads = (latest.uploads || []).map((f) => path.basename(f));
+  const fromAssets = Array.isArray(latest.assets) ? latest.assets : [];
+  const fromVoice = latest.voice ? [latest.voice] : [];
+  return [...fromUploads, ...fromAssets, ...fromVoice].filter(Boolean);
 }
 
 async function cmdProjectCurrent() {
@@ -416,9 +442,14 @@ async function cmdProjectCurrent() {
       });
     }
     const updated = loadState();
+    const fallbackLabels = getFallbackChipLabelsForProject(status.projectId);
+    const composerState = status.hasPromptComposer
+      ? await readComposerState(page, { fallbackLabels }).catch(() => null)
+      : null;
     return {
       currentProject: updated.currentProject || state.currentProject,
       livePage: status,
+      composerState,
       recentDrafts: updated.stagedDrafts.slice(0, 5),
     };
   });
@@ -426,7 +457,9 @@ async function cmdProjectCurrent() {
 
 async function cmdProjectInspect() {
   return withFlowPage({ requireProject: true }, async ({ page }) => {
-    return inspectPageDom(page);
+    const projectId = extractProjectIdFromUrl(page.url());
+    const fallbackLabels = getFallbackChipLabelsForProject(projectId);
+    return inspectPageDom(page, { fallbackLabels });
   });
 }
 
@@ -438,14 +471,28 @@ async function cmdAssetList({ category = 'semua', query = '' } = {}) {
       throw new CliError('Google sign-in required in Chrome.', EXIT_CODES.LOGIN_REQUIRED, auth);
     }
 
-    const tabRes = await openAssetTab(page, canon);
-    if (query) {
-      await searchAssetsInDrawer(page, query);
+    const uiSnapshot = await snapshotDrawerUiState(page);
+    let tabRes = { matched: false };
+    let items = [];
+    try {
+      tabRes = await openAssetTab(page, canon);
+      await page
+        .locator('.cdk-overlay-container button.asset-item[role="option"]')
+        .first()
+        .waitFor({ state: 'visible', timeout: 1200 })
+        .catch(() => {});
+      if (query) {
+        await searchAssetsInDrawer(page, query);
+      }
+      items = await readVisibleAssets(page);
+    } finally {
+      await restoreDrawerUiState(page, uiSnapshot);
     }
-    const items = await readVisibleAssets(page);
+
     return {
       category: canon,
       tabClicked: tabRes.matched,
+      uiRestored: true,
       query: query || null,
       count: items.length,
       items,
@@ -510,20 +557,54 @@ async function cmdVoiceList({ query = '', live = false } = {}) {
     };
   }
 
-  return withFlowPage({}, async ({ page }) => {
+  return withFlowPage({ requireProject: true }, async ({ page }) => {
     const auth = await detectAuthAndPageState(page);
     if (auth.needsLogin) {
       throw new CliError('Google sign-in required in Chrome.', EXIT_CODES.LOGIN_REQUIRED, auth);
     }
 
-    await openAssetTab(page, 'suara');
-    if (query) {
-      await searchAssetsInDrawer(page, query);
+    const uiSnapshot = await snapshotDrawerUiState(page);
+    let tabRes = { matched: false };
+    let items = [];
+    let liveStatus = null;
+    try {
+      tabRes = await openAssetTab(page, 'suara');
+      if (!tabRes.matched) {
+        liveStatus =
+          'Suara (Voice) tab was not found in the current composer mode; switch mode to Video or check catalogVoices.';
+      } else {
+        const searchBox = page
+          .locator('.cdk-overlay-container input.search-input, input[placeholder*="Telusuri aset" i], input[placeholder*="Search assets" i]')
+          .first();
+        if (await searchBox.count()) {
+          const existingSearch = await searchBox.inputValue().catch(() => '');
+          if (existingSearch) {
+            await searchBox.fill('').catch(() => {});
+          }
+        }
+        await page
+          .locator('.cdk-overlay-container button.asset-item[role="option"]')
+          .first()
+          .waitFor({ state: 'visible', timeout: 2500 })
+          .catch(() => {});
+        await page.waitForTimeout(250);
+        items = await readVisibleAssets(page);
+        if (query && String(query).trim()) {
+          const q = String(query).trim().toLowerCase();
+          items = items.filter((it) => `${it.label} ${it.rawText || ''}`.toLowerCase().includes(q));
+        }
+      }
+    } finally {
+      await restoreDrawerUiState(page, uiSnapshot);
     }
-    const items = await readVisibleAssets(page);
+
     return {
       source: 'live-and-catalog',
       maxDialogLength: MAX_DIALOG_LENGTH,
+      tabClicked: tabRes.matched,
+      uiRestored: true,
+      liveStatus,
+      liveCount: items.length,
       liveItems: items,
       catalogVoices: catalogMatches,
       webUrl: page.url(),
@@ -638,9 +719,10 @@ async function stageSingleQueueItemOnPage(page, auth, item) {
   });
   stageResult.clearedPrevious = Boolean(item.clear);
   await page.waitForTimeout(80);
-  const composerState = await readComposerState(page);
 
   const projectId = extractProjectIdFromUrl(page.url()) || 'active';
+  const fallbackLabels = getFallbackChipLabelsForProject(projectId, item);
+  const composerState = await readComposerState(page, { fallbackLabels });
   const draftRecord = recordStagedDraft({
     projectId,
     webUrl: page.url(),
@@ -653,9 +735,10 @@ async function stageSingleQueueItemOnPage(page, auth, item) {
   });
 
   if (extractProjectIdFromUrl(page.url())) {
+    const existingProject = loadState().projects[projectId];
     setCurrentProject({
       projectId,
-      title: item.title || (auth && (auth.headingText || auth.title)) || projectId,
+      title: (auth && (auth.headingText || auth.title)) || (existingProject && existingProject.title) || projectId,
       webUrl: page.url(),
     });
   }

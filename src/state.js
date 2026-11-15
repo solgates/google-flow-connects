@@ -96,9 +96,13 @@ function upsertProjectRecord(project) {
 function setCurrentProject(project) {
   const state = loadState();
   const now = new Date().toISOString();
+  const cleanTitle =
+    String(project.title || '')
+      .replace(/^Google Flow\s*-\s*/i, '')
+      .trim() || 'Untitled Flow Project';
   const entry = {
     projectId: project.projectId || extractProjectIdFromUrl(project.webUrl) || 'active',
-    title: project.title || 'Untitled Flow Project',
+    title: cleanTitle,
     webUrl: project.webUrl || FLOW_HOME_URL,
     updatedAt: now,
   };

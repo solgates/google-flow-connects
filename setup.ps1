@@ -129,11 +129,24 @@ function Update-ClaudeDesktopConfig {
     [string]$ConfigPath,
     [string]$NodeExe,
     [string]$CliScript,
-    [System.Text.Encoding]$Encoding
+    [System.Text.Encoding]$Encoding,
+    [switch]$Remove
   )
 
   $configObj = Read-JsonObject -Path $ConfigPath
   $existingServers = $configObj.PSObject.Properties['mcpServers']
+
+  if ($Remove) {
+    if ($null -ne $existingServers -and $null -ne $existingServers.Value) {
+      if ($null -ne $configObj.mcpServers.PSObject.Properties['google-flow']) {
+        $configObj.mcpServers.PSObject.Properties.Remove('google-flow')
+        Write-JsonObject -Path $ConfigPath -Object $configObj -Encoding $Encoding
+        Write-Host "  Removed duplicate google-flow Local dev MCP -> $ConfigPath"
+      }
+    }
+    return
+  }
+
   if ($null -eq $existingServers -or $null -eq $existingServers.Value) {
     $configObj | Add-Member -NotePropertyName 'mcpServers' -NotePropertyValue ([pscustomobject]@{}) -Force
   }
@@ -330,14 +343,18 @@ if ($selectedAgents -contains 'claude') {
   foreach ($pkg in $msixPackages) {
     $claudeTargets += Join-Path $pkg.FullName 'LocalCache\Roaming\Claude\claude_desktop_config.json'
   }
-  $claudeDataDirs = Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Claude-Data') -Filter 'claude_*' -Directory -ErrorAction SilentlyContinue
+  $claudeDataDirs = @(Get-ChildItem -Path (Join-Path $env:LOCALAPPDATA 'Claude-Data') -Filter 'claude_*' -Directory -ErrorAction SilentlyContinue)
   foreach ($dataDir in $claudeDataDirs) {
     $claudeTargets += Join-Path $dataDir.FullName 'claude_desktop_config.json'
     Install-ClaudeDesktopExtension -ProfileDir $dataDir.FullName -CliScript $cliJs -Encoding $utf8NoBom
     Install-ClaudeCoworkPlugin -ProfileDir $dataDir.FullName -RepoRoot $repoRoot -Encoding $utf8NoBom
   }
   foreach ($cfgPath in ($claudeTargets | Select-Object -Unique)) {
-    Update-ClaudeDesktopConfig -ConfigPath $cfgPath -NodeExe $nodeExe -CliScript $cliJs -Encoding $utf8NoBom
+    if ($claudeDataDirs.Count -gt 0) {
+      Update-ClaudeDesktopConfig -ConfigPath $cfgPath -Remove -Encoding $utf8NoBom
+    } else {
+      Update-ClaudeDesktopConfig -ConfigPath $cfgPath -NodeExe $nodeExe -CliScript $cliJs -Encoding $utf8NoBom
+    }
   }
 } else {
   Write-Host '[4/5] Skipping Claude Desktop MCP registration (claude not selected).'

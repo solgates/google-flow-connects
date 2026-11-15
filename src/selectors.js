@@ -77,78 +77,102 @@ async function detectAuthAndPageState(page) {
   };
 }
 
-async function readComposerState(page) {
-  return page.evaluate(() => {
-    const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
-    const composer = document.querySelector(
-      'div.ProseMirror[role="textbox"], [aria-label*="Apa yang ingin Anda buat" i][role="textbox"], [aria-label*="What would you like to create" i][role="textbox"]'
-    );
-    const promptText = composer ? clean(composer.innerText) : '';
-
-    const bar = document.querySelector('flow-ingredient-bar, .prompt-ingredient-bar');
-    const chipRoot = bar || document;
-    const rawChips = Array.from(chipRoot.querySelectorAll('flow-ingredient-chip'));
-    const fallbackButtons = rawChips.length
-      ? []
-      : Array.from(chipRoot.querySelectorAll('button.chip-container, button[aria-label="Bahan"]'));
-
-    const chipEls = rawChips.length ? rawChips : fallbackButtons;
-    const ingredientChips = chipEls.map((el, index) => {
-      const btn = el.matches('button')
-        ? el
-        : el.querySelector('button.chip-container, button[aria-label="Bahan"], button');
-      const text = clean(el.innerText);
-      const ariaLabel = (btn && btn.getAttribute('aria-label')) || el.getAttribute('aria-label') || null;
-      const img = el.querySelector('img');
-      const hasError = Boolean(
-        el.classList.contains('error') ||
-          (btn && (btn.classList.contains('disabled') || btn.classList.contains('error'))) ||
-          el.querySelector('.disabled-error-icon') ||
-          /\berror\b/i.test(text)
+async function readComposerState(page, { fallbackLabels = [] } = {}) {
+  return page.evaluate(
+    ({ fallbacks }) => {
+      const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const composer = document.querySelector(
+        'div.ProseMirror[role="textbox"], [aria-label*="Apa yang ingin Anda buat" i][role="textbox"], [aria-label*="What would you like to create" i][role="textbox"]'
       );
-      const kind = el.querySelector('flow-audio-ingredient-chip')
-        ? 'audio'
-        : img
-          ? 'image'
-          : 'ingredient';
+      const promptText = composer ? clean(composer.innerText) : '';
+
+      const bar = document.querySelector('flow-ingredient-bar, .prompt-ingredient-bar');
+      const chipRoot = bar || document;
+      const rawChips = Array.from(chipRoot.querySelectorAll('flow-ingredient-chip'));
+      const fallbackButtons = rawChips.length
+        ? []
+        : Array.from(chipRoot.querySelectorAll('button.chip-container, button[aria-label="Bahan"]'));
+
+      const chipEls = rawChips.length ? rawChips : fallbackButtons;
+      const ingredientChips = chipEls.map((el, index) => {
+        const btn = el.matches('button')
+          ? el
+          : el.querySelector('button.chip-container, button[aria-label="Bahan"], button');
+        const clone = el.cloneNode(true);
+        clone
+          .querySelectorAll('mat-icon, .google-symbols, .material-icons, .hover-icon-overlay, .disabled-cancel-icon')
+          .forEach((n) => n.remove());
+        const nonIconText = clean(clone.innerText);
+        const rawInnerText = clean(el.innerText);
+        const ariaLabel = (btn && btn.getAttribute('aria-label')) || el.getAttribute('aria-label') || null;
+        const img = el.querySelector('img');
+        const imgAlt = img ? clean(img.getAttribute('alt') || '') : '';
+        const stampedLabel = clean(el.getAttribute('data-flow-asset-label') || '');
+        const fallbackLabel = clean((fallbacks && fallbacks[index]) || '');
+        if (!stampedLabel && fallbackLabel) {
+          el.setAttribute('data-flow-asset-label', fallbackLabel);
+        }
+
+        const hasError = Boolean(
+          el.classList.contains('error') ||
+            (btn && (btn.classList.contains('disabled') || btn.classList.contains('error'))) ||
+            el.querySelector('.disabled-error-icon') ||
+            /\berror\b/i.test(rawInnerText)
+        );
+        const kind = el.querySelector('flow-audio-ingredient-chip')
+          ? 'audio'
+          : img
+            ? 'image'
+            : 'ingredient';
+        const genericAlt = /^Gambar bahan$/i.test(imgAlt) || /^Ingredient image$/i.test(imgAlt);
+        const label =
+          stampedLabel ||
+          nonIconText ||
+          fallbackLabel ||
+          (imgAlt && !genericAlt ? imgAlt : '') ||
+          (kind === 'image' ? `Attached image #${index + 1}` : kind);
+
+        return {
+          index,
+          kind,
+          label,
+          text: label,
+          ariaLabel,
+          hasError,
+          imgAlt: imgAlt || null,
+        };
+      });
+
+      const settingsBtn = document.querySelector(
+        'button.settings-trigger-button, button[aria-label*="Pemicu setelan" i], button[aria-label*="Settings trigger" i]'
+      );
+      const settingsSummary = settingsBtn ? clean(settingsBtn.innerText) : null;
+
+      const genBtn = document.querySelector(
+        'button.generate-icon-button, button[aria-label*="Mulai pembuatan" i], button[aria-label*="Start generation" i]'
+      );
+      const generateButtonDisabled = genBtn
+        ? Boolean(genBtn.disabled || genBtn.getAttribute('aria-disabled') === 'true')
+        : true;
+
+      const generateReady = Boolean(
+        promptText.length > 0 && !generateButtonDisabled && ingredientChips.every((c) => !c.hasError)
+      );
+
       return {
-        index,
-        kind,
-        text,
-        ariaLabel,
-        hasError,
-        imgAlt: img ? img.getAttribute('alt') || null : null,
+        promptText,
+        ingredientChips,
+        settingsSummary,
+        generateButtonDisabled,
+        generateReady,
       };
-    });
-
-    const settingsBtn = document.querySelector(
-      'button.settings-trigger-button, button[aria-label*="Pemicu setelan" i], button[aria-label*="Settings trigger" i]'
-    );
-    const settingsSummary = settingsBtn ? clean(settingsBtn.innerText) : null;
-
-    const genBtn = document.querySelector(
-      'button.generate-icon-button, button[aria-label*="Mulai pembuatan" i], button[aria-label*="Start generation" i]'
-    );
-    const generateButtonDisabled = genBtn
-      ? Boolean(genBtn.disabled || genBtn.getAttribute('aria-disabled') === 'true')
-      : true;
-
-    const generateReady = Boolean(
-      promptText.length > 0 && !generateButtonDisabled && ingredientChips.every((c) => !c.hasError)
-    );
-
-    return {
-      promptText,
-      ingredientChips,
-      settingsSummary,
-      generateButtonDisabled,
-      generateReady,
-    };
-  });
+    },
+    { fallbacks: Array.isArray(fallbackLabels) ? fallbackLabels : [] }
+  );
 }
 
-async function inspectPageDom(page) {
-  const composerState = await readComposerState(page);
+async function inspectPageDom(page, { fallbackLabels = [] } = {}) {
+  const composerState = await readComposerState(page, { fallbackLabels });
   const dom = await page.evaluate(() => {
     const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
     const isVisible = (el) => {
@@ -435,6 +459,91 @@ async function closeAssetDrawerIfOpen(page) {
   return !(await isAssetDrawerOpen(page));
 }
 
+async function snapshotDrawerUiState(page) {
+  const wasOpen = await isAssetDrawerOpen(page);
+  if (!wasOpen) {
+    return { wasOpen: false, activeTabText: null, searchValue: '' };
+  }
+  return page.evaluate(() => {
+    const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+    const stripLigature = (s) => clean(s).replace(/^(?:[a-z][a-z0-9_]*)\s+/, '');
+    const root = document.querySelector('.cdk-overlay-container') || document;
+    const tabs = Array.from(root.querySelectorAll('mat-list-item.side-nav-list-item[role="tab"], [role="tab"]'));
+    const activeTab = tabs.find(
+      (el) =>
+        el.getAttribute('aria-selected') === 'true' ||
+        el.classList.contains('mdc-list-item--activated') ||
+        el.classList.contains('active') ||
+        el.classList.contains('side-nav-list-item-active')
+    );
+    const searchEl = root.querySelector(
+      'input.search-input, input[placeholder*="Telusuri aset" i], input[placeholder*="Search assets" i]'
+    );
+    return {
+      wasOpen: true,
+      activeTabText: activeTab ? stripLigature(activeTab.innerText || activeTab.getAttribute('aria-label') || '') : null,
+      searchValue: searchEl && typeof searchEl.value === 'string' ? searchEl.value : '',
+    };
+  });
+}
+
+async function restoreDrawerUiState(page, snapshot) {
+  const searchBox = page
+    .locator('.cdk-overlay-container input.search-input, input[placeholder*="Telusuri aset" i], input[placeholder*="Search assets" i]')
+    .first();
+
+  if (!snapshot || !snapshot.wasOpen) {
+    if (await searchBox.count()) {
+      const existing = await searchBox.inputValue().catch(() => '');
+      if (existing) {
+        await searchBox.fill('').catch(() => {});
+      }
+    }
+    await closeAssetDrawerIfOpen(page);
+    return true;
+  }
+
+  if (!(await isAssetDrawerOpen(page))) {
+    await ensureAssetDrawerOpen(page);
+  }
+  if (snapshot.activeTabText) {
+    await clickFirstMatchingElement(
+      page,
+      [new RegExp(`^${escapeRegExp(snapshot.activeTabText)}$`, 'i')],
+      ['mat-list-item.side-nav-list-item[role="tab"]', '[role="tab"]'],
+      '.cdk-overlay-container'
+    );
+    await page.waitForTimeout(80);
+  }
+  if (await searchBox.count()) {
+    const current = await searchBox.inputValue().catch(() => '');
+    const target = snapshot.searchValue || '';
+    if (current !== target) {
+      await searchBox.fill(target).catch(() => {});
+    }
+  }
+  return true;
+}
+
+async function stampComposerChipLabel(page, label) {
+  const cleanLabel = String(label || '').replace(/\s+/g, ' ').trim();
+  if (!cleanLabel) return false;
+  const deadline = Date.now() + 350;
+  while (Date.now() < deadline) {
+    const stamped = await page.evaluate((lbl) => {
+      const bar = document.querySelector('flow-ingredient-bar, .prompt-ingredient-bar') || document;
+      const chips = Array.from(bar.querySelectorAll('flow-ingredient-chip'));
+      const target = [...chips].reverse().find((c) => !c.getAttribute('data-flow-asset-label'));
+      if (!target) return false;
+      target.setAttribute('data-flow-asset-label', lbl);
+      return true;
+    }, cleanLabel);
+    if (stamped) return true;
+    await page.waitForTimeout(45);
+  }
+  return false;
+}
+
 async function openAssetTab(page, categoryKey) {
   await ensureAssetDrawerOpen(page);
   const labels = getCategoryLabels(categoryKey);
@@ -534,14 +643,37 @@ async function readVisibleAssets(page) {
       const img = el.querySelector('img');
       const imgAlt = img ? clean(img.getAttribute('alt') || '') : '';
       const imgSrc = img ? (img.getAttribute('src') || '').slice(0, 140) : '';
-      const label = stripLigature(rawText) || stripLigature(ariaLabel) || imgAlt || (img ? `[image #${idx}]` : '');
+
+      const titleText = clean(el.querySelector('.asset-title')?.innerText || '');
+      const subtitleText = clean(el.querySelector('.type-subtitle')?.innerText || '');
+      const descText = clean(el.querySelector('.asset-description')?.innerText || '');
+
+      const clone = el.cloneNode(true);
+      clone
+        .querySelectorAll(
+          'mat-icon, .google-symbols, .material-icons, .hover-icon-overlay, .disabled-cancel-icon, button[aria-label*="hapus" i], button[aria-label*="delete" i]'
+        )
+        .forEach((n) => n.remove());
+      const nonIconText = clean(clone.innerText);
+
+      let label = '';
+      if (titleText && descText) {
+        label = `${titleText} — ${descText}`;
+      } else if (titleText) {
+        label = titleText;
+      } else {
+        label = stripLigature(nonIconText) || stripLigature(ariaLabel) || imgAlt || (img ? `[image #${idx}]` : '');
+      }
       if (!label) return;
       const dedupeKey = `${label}::${ariaLabel}::${imgSrc || idx}`;
       if (seen.has(dedupeKey)) return;
       seen.add(dedupeKey);
       items.push({
         index: idx,
+        name: (titleText || label).slice(0, 140),
         label: label.slice(0, 140),
+        type: subtitleText || null,
+        description: descText || null,
         rawText: rawText.slice(0, 140),
         ariaLabel: ariaLabel || null,
         imgAlt: imgAlt || null,
@@ -644,11 +776,13 @@ async function attachDrawerCard(page, { query = null, index = null, categoryKey 
         if (q) {
           const needle = String(q).trim().toLowerCase();
           matchedIdx = cards.findIndex((el) => {
+            const titleText = clean(el.querySelector('.asset-title')?.innerText || '');
+            const descText = clean(el.querySelector('.asset-description')?.innerText || '');
             const raw = clean(el.innerText);
             const stripped = stripLigature(raw);
             const aria = clean(el.getAttribute('aria-label') || '');
             const alt = clean(el.querySelector('img')?.getAttribute('alt') || '');
-            return [raw, stripped, aria, alt].some((s) => s && s.toLowerCase().includes(needle));
+            return [titleText, descText, raw, stripped, aria, alt].some((s) => s && s.toLowerCase().includes(needle));
           });
           if (matchedIdx !== -1) card = cards[matchedIdx];
         } else if (typeof idx === 'number' && idx >= 0 && idx < cards.length) {
@@ -662,6 +796,7 @@ async function attachDrawerCard(page, { query = null, index = null, categoryKey 
         const wasAlreadyActive =
           card.classList.contains('asset-item-active') || card.getAttribute('aria-selected') === 'true';
         const label =
+          clean(card.querySelector('.asset-title')?.innerText || '') ||
           stripLigature(card.innerText) ||
           clean(card.getAttribute('aria-label') || '') ||
           clean(card.querySelector('img')?.getAttribute('alt') || '') ||
@@ -702,46 +837,54 @@ async function attachDrawerCard(page, { query = null, index = null, categoryKey 
     };
   }
 
+  let attachResult = null;
   if (clicked.wasAlreadyActive) {
     if (await waitForDrawerClosed(page, 400)) {
-      return { attached: true, method: 'active-card-click', ...clicked };
+      attachResult = { attached: true, method: 'active-card-click', ...clicked };
     }
   } else {
     // Allow Angular detail panel a brief frame to bind to the newly selected card before clicking Add
     await page.waitForTimeout(80);
     if (!(await isAssetDrawerOpen(page))) {
-      return { attached: true, method: 'active-card-click', ...clicked };
+      attachResult = { attached: true, method: 'active-card-click', ...clicked };
     }
   }
 
-  const addBtn = page
-    .locator(
-      '.cdk-overlay-container button.detail-add-to-prompt-btn:not([disabled]), button.detail-add-to-prompt-btn:not([disabled])'
-    )
-    .first();
-  await addBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-  if (await addBtn.count() && await addBtn.isEnabled().catch(() => false)) {
-    const addButtonLabel = stripIconLigature(await addBtn.innerText().catch(() => 'Tambahkan ke perintah'));
-    await addBtn.click();
-    await waitForDrawerClosed(page, 400);
-    return { attached: true, method: 'detail-add-to-prompt-btn', addButtonLabel, ...clicked };
+  if (!attachResult) {
+    const addBtn = page
+      .locator(
+        '.cdk-overlay-container button.detail-add-to-prompt-btn:not([disabled]), button.detail-add-to-prompt-btn:not([disabled])'
+      )
+      .first();
+    await addBtn.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    if ((await addBtn.count()) && (await addBtn.isEnabled().catch(() => false))) {
+      const addButtonLabel = stripIconLigature(await addBtn.innerText().catch(() => 'Tambahkan ke perintah'));
+      await addBtn.click();
+      await waitForDrawerClosed(page, 400);
+      attachResult = { attached: true, method: 'detail-add-to-prompt-btn', addButtonLabel, ...clicked };
+    } else {
+      const addClicked = await clickFirstMatchingElement(
+        page,
+        [/^Tambahkan ke perintah$/i, /^Add to prompt$/i, /Use as reference/i],
+        ['button:not([disabled])', '[role="button"]:not([aria-disabled="true"])'],
+        '.cdk-overlay-container'
+      );
+      if (addClicked.matched) {
+        await waitForDrawerClosed(page, 400);
+      }
+      attachResult = {
+        attached: addClicked.matched || !(await isAssetDrawerOpen(page)),
+        method: addClicked.matched ? 'fallback-add-button' : 'card-click-only',
+        addButtonLabel: addClicked.text || null,
+        ...clicked,
+      };
+    }
   }
 
-  const addClicked = await clickFirstMatchingElement(
-    page,
-    [/^Tambahkan ke perintah$/i, /^Add to prompt$/i, /Use as reference/i],
-    ['button:not([disabled])', '[role="button"]:not([aria-disabled="true"])'],
-    '.cdk-overlay-container'
-  );
-  if (addClicked.matched) {
-    await waitForDrawerClosed(page, 400);
+  if (attachResult.attached) {
+    await stampComposerChipLabel(page, clicked.label);
   }
-  return {
-    attached: addClicked.matched || !(await isAssetDrawerOpen(page)),
-    method: addClicked.matched ? 'fallback-add-button' : 'card-click-only',
-    addButtonLabel: addClicked.text || null,
-    ...clicked,
-  };
+  return attachResult;
 }
 
 async function uploadFilesInUi(
@@ -1095,6 +1238,10 @@ async function configureVoiceInUi(page, { voiceName, dialog, style, saveName = '
     addButtonLabel = addRes.text || null;
   }
 
+  if (addedToPrompt) {
+    await stampComposerChipLabel(page, savedCustomVoiceName || voiceName);
+  }
+
   return {
     tabClicked: tabRes.matched,
     voice: voiceName || null,
@@ -1252,6 +1399,9 @@ module.exports = {
   isAssetDrawerOpen,
   ensureAssetDrawerOpen,
   closeAssetDrawerIfOpen,
+  snapshotDrawerUiState,
+  restoreDrawerUiState,
+  stampComposerChipLabel,
   openAssetTab,
   searchAssetsInDrawer,
   readVisibleAssets,
