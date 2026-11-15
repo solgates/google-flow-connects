@@ -219,7 +219,7 @@ function Install-ClaudeCoworkPlugin {
 
   $pluginKey = 'google-flow-connects@local-desktop-app-uploads'
   $nowIso = [DateTime]::UtcNow.ToString('o')
-  $itemsToCopy = @('.claude-plugin', '.mcp.json', 'skills', 'bin', 'src', 'package.json', 'README.md')
+  $itemsToCopy = @('.claude-plugin', 'skills', 'README.md')
 
   foreach ($sessDir in $sessionDirs) {
     $pluginRoot = Join-Path $sessDir 'cowork_plugins\uploads\local-desktop-app-uploads\google-flow-connects'
@@ -233,6 +233,11 @@ function Install-ClaudeCoworkPlugin {
       if (Test-Path $srcPath) {
         Copy-Item -Path $srcPath -Destination (Join-Path $pluginRoot $item) -Recurse -Force
       }
+    }
+
+    $staleMcp = Join-Path $pluginRoot '.mcp.json'
+    if (Test-Path $staleMcp) {
+      Remove-Item -Path $staleMcp -Force
     }
 
     $installedPath = Join-Path $sessDir 'cowork_plugins\installed_plugins.json'

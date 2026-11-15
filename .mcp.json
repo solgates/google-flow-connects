@@ -1,9 +1,8 @@
 {
   "mcpServers": {
     "google-flow": {
-      "command": "node",
+      "command": "flow-canvas",
       "args": [
-        "${CLAUDE_PLUGIN_ROOT}/bin/flow-canvas.js",
         "mcp"
       ]
     }
