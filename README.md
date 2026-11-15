@@ -72,9 +72,16 @@ powershell -ExecutionPolicy Bypass -File .\setup.ps1 -SkipNpm
 
 ---
 
-## Optional MCP Registration (Antigravity, Kiro, Claude)
+## Claude Desktop Integration & Optional MCP Registration
 
-If you also want native `flow_*` MCP tools alongside CLI commands, add this entry to your agent's MCP config (for example `~/.claude.json` for Claude or `.kiro/settings/mcp.json` for Kiro):
+`setup.ps1` automatically registers `google-flow` in **Claude Desktop** (`claude_desktop_config.json` for both standard `%APPDATA%\Claude` and Windows Store / MSIX installs under `%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude`) using `node.exe` and the full path to `bin/flow-canvas.js`.
+
+1. **Restart Claude Desktop** (`Quit` from the Windows system tray icon, then reopen Claude Desktop) so the `google-flow` MCP tools (`flow_project_*`, `flow_asset_*`, `flow_voice_*`, `flow_prompt_stage`, `flow_queue_*`) appear under **Settings -> Developer -> Local MCP Servers**.
+2. **Using the bundled skills in Claude**:
+   - **Claude Code / Cowork**: Automatically reads your synced skills from `%USERPROFILE%\.claude\skills\`.
+   - **Claude Desktop Chat**: Attach or upload the relevant `SKILL.md` (for example `skills/main-art-director/SKILL.md` or `skills/google-flow-cli/SKILL.md`) into a Claude Desktop Project's Knowledge files, or invoke the `google-flow` MCP tools directly from chat.
+
+For **Antigravity** or **Kiro** (`.kiro/settings/mcp.json`, or `~/.claude.json` for Claude Code), you can also register:
 
 ```json
 {
